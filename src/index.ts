@@ -5,7 +5,7 @@
  */
 
 // Version
-export const version = "0.1.0";
+export const version = "0.1.1";
 
 // Auth exports
 export { AuthClient } from "@/auth/client";
@@ -17,6 +17,7 @@ export { AuthenticatedBaseService } from "@/services/AuthenticatedBaseService";
 // Type exports
 export type {
   AuthConfig,
+  User,
   Session,
   SignInResponse,
   RefreshResponse,

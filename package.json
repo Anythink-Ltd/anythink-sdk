@@ -1,6 +1,6 @@
 {
   "name": "@anythink-cloud/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reusable Typescript SDK for Anythink platform",
   "homepage": "https://anythink.cloud",
   "bugs": "https://github.com/Anythink-Ltd/anythink-sdk/issues",
@@ -34,7 +34,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Anythink-Ltd/anythink-sdk.git"
+    "url": "git+https://github.com/Anythink-Ltd/anythink-sdk.git"
   },
   "publishConfig": {
     "access": "public"
