@@ -1,0 +1,55 @@
+{
+  "name": "@anythink-cloud/sdk",
+  "version": "0.1.0",
+  "description": "Reusable Typescript SDK for Anythink platform",
+  "homepage": "https://anythink.cloud",
+  "bugs": "https://github.com/Anythink-Ltd/anythink-sdk/issues",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "anythink",
+    "sdk"
+  ],
+  "author": "Anythink",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Anythink-Ltd/anythink-sdk.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {},
+  "dependencies": {
+    "axios": "^1.13.2",
+    "zustand": "^5.0.8"
+  }
+}
