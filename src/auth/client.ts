@@ -13,27 +13,18 @@ import { createAuthStore } from "@/auth/store";
  */
 export class AuthClient {
   private store: ReturnType<typeof createAuthStore>;
-  private config: Required<AuthConfig>;
-  private onSessionChanged?: (session: Session | null) => void;
+  private config: AuthConfig;
   private axiosClient: AxiosInstance;
 
-  constructor(
-    config: AuthConfig & {
-      onSessionChanged?: (session: Session | null) => void;
-    }
-  ) {
-    this.config = {
-      tokenEndpoint: "/auth/v1/token",
-      refreshEndpoint: "/auth/v1/refresh",
-      changePasswordEndpoint: "/users/me/password",
-      storageKey: "anythink_auth_session",
-      onSignOut: () => {
-        return;
-      },
-      ...config,
-    };
-
-    this.store = createAuthStore(this.config.storageKey);
+  constructor(config: AuthConfig) {
+    this.config = config;
+    this.store = createAuthStore({
+      name: this.config.cookieStorage?.name ?? "anythink_auth_session",
+      domain: this.config.cookieStorage?.domain,
+      path: this.config.cookieStorage?.path,
+      secure: this.config.cookieStorage?.secure,
+      sameSite: this.config.cookieStorage?.sameSite,
+    });
 
     // Create axios instance with base URL
     this.axiosClient = axios.create({
@@ -42,34 +33,6 @@ export class AuthClient {
         "Content-Type": "application/json",
       },
     });
-
-    if (typeof config.onSessionChanged === "function") {
-      this.onSessionChanged = config.onSessionChanged;
-    }
-  }
-
-  /**
-   * Set the onSessionChanged handler.
-   * @param handler Callback fired whenever the session changes
-   */
-  setOnSessionChanged(
-    handler: ((session: Session | null) => void) | undefined
-  ) {
-    this.onSessionChanged = handler;
-  }
-
-  /**
-   * Internal helper to call the session-changed handler, if present.
-   */
-  private _callSessionChanged(session: Session | null) {
-    if (typeof this.onSessionChanged === "function") {
-      try {
-        this.onSessionChanged(session);
-      } catch (e) {
-        // Avoid throwing in userland
-        console.warn("onSessionChanged threw:", e);
-      }
-    }
   }
 
   /**
@@ -92,7 +55,7 @@ export class AuthClient {
 
       // Always expect snake_case fields from the API
       const response = await this.axiosClient.post<TokenPair>(
-        this.config.tokenEndpoint,
+        "/auth/v1/token",
         { email, password },
         { params }
       );
@@ -107,7 +70,6 @@ export class AuthClient {
       };
 
       this.store.getState().setSession(session);
-      this._callSessionChanged(session); // Call hook here
       this.store.getState().setLoading(false);
 
       return { data: { session }, error: null };
@@ -128,7 +90,6 @@ export class AuthClient {
       this.store.getState().setError(authError);
       this.store.getState().setLoading(false);
       this.store.getState().setSession(null);
-      this._callSessionChanged(null); // Call hook for failed sign in
 
       return {
         data: { session: null },
@@ -200,7 +161,7 @@ export class AuthClient {
       this.store.getState().clearError();
 
       const response = await this.axiosClient.post<TokenPair>(
-        this.config.refreshEndpoint,
+        "/auth/v1/refresh",
         { token: session.refresh_token }
       );
 
@@ -214,14 +175,12 @@ export class AuthClient {
       };
 
       this.store.getState().setSession(newSession);
-      this._callSessionChanged(newSession); // Call here
       this.store.getState().setLoading(false);
 
       return { data: { session: newSession }, error: null };
     } catch (error) {
       // Clear invalid tokens
       this.store.getState().setSession(null);
-      this._callSessionChanged(null); // Call hook here on null-out
       this.store.getState().setLoading(false);
 
       let authError: Error;
@@ -291,10 +250,8 @@ export class AuthClient {
         expires_at: Math.floor(Date.now() / 1000) + expires_in,
       };
       this.store.getState().setSession(session);
-      this._callSessionChanged(session); // Call here
       return { error: null };
     } catch (error) {
-      this._callSessionChanged(null); // Defensive, though only on explicit error
       return {
         error:
           error instanceof Error ? error : new Error("Failed to set session"),
@@ -318,7 +275,7 @@ export class AuthClient {
         throw new Error("No access token found");
       }
       await this.axiosClient.post(
-        this.config.changePasswordEndpoint,
+        "/users/me/password",
         {
           current_password: currentPassword,
           new_password: newPassword,
@@ -354,13 +311,43 @@ export class AuthClient {
 
   /**
    * Sign out and clear session
+   * Invalidates the refresh token on the server and clears local session
+   * @returns Error object or null if successful
    */
-  async signOut(): Promise<{ error: null }> {
+  async signOut(): Promise<{ error: Error | null }> {
+    const refreshToken = this.getRefreshToken();
+
+    // Always clear local session first
     this.store.getState().signOut();
-    this._callSessionChanged(null); // Call on sign out
-    if (this.config.onSignOut) {
-      this.config.onSignOut();
+
+    // If we have a refresh token, try to invalidate it on the server
+    // This is best practice for security - prevents token reuse
+    if (refreshToken) {
+      try {
+        await this.axiosClient.post("/auth/v1/logout", {
+          token: refreshToken,
+        });
+      } catch (error) {
+        // If the API call fails, we've already cleared local session
+        // Log the error but don't fail the sign out operation
+        // The token may already be invalid or expired, which is fine
+        if (error instanceof AxiosError) {
+          // Only log if it's not a 401/404 (token already invalid/not found)
+          if (
+            error.response?.status !== 401 &&
+            error.response?.status !== 404
+          ) {
+            console.warn(
+              "Failed to invalidate refresh token on server:",
+              error.message
+            );
+          }
+        }
+        // Return null error - sign out succeeded locally even if server call failed
+        return { error: null };
+      }
     }
+
     return { error: null };
   }
 

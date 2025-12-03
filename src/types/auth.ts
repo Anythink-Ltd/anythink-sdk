@@ -30,16 +30,38 @@ export interface Session {
 }
 
 /**
+ * Cookie storage configuration options
+ */
+export interface CookieStorageConfig {
+  /**
+   * Cookie name (default: 'anythink_auth_session')
+   */
+  name?: string;
+  /**
+   * Cookie domain (optional)
+   */
+  domain?: string;
+  /**
+   * Cookie path (default: '/')
+   */
+  path?: string;
+  /**
+   * Whether to use Secure flag (HTTPS only, default: true in production)
+   */
+  secure?: boolean;
+  /**
+   * SameSite attribute (default: 'lax')
+   */
+  sameSite?: "strict" | "lax" | "none";
+}
+
+/**
  * Configuration for the auth client
  */
 export interface AuthConfig {
   instanceUrl: string;
   orgId: number;
-  tokenEndpoint?: string;
-  refreshEndpoint?: string;
-  changePasswordEndpoint?: string;
-  storageKey?: string;
-  onSignOut?: () => void;
+  cookieStorage?: CookieStorageConfig;
 }
 
 /**

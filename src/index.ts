@@ -4,9 +4,6 @@
  * A reusable Typescript SDK for the Anythink platform.
  */
 
-// Version
-export const version = "0.1.1";
-
 // Auth exports
 export { AuthClient } from "@/auth/client";
 export { createAuthStore } from "@/auth/store";
@@ -17,6 +14,7 @@ export { AuthenticatedBaseService } from "@/services/AuthenticatedBaseService";
 // Type exports
 export type {
   AuthConfig,
+  CookieStorageConfig,
   User,
   Session,
   SignInResponse,
