@@ -55,7 +55,7 @@ export class AuthClient {
 
       // Always expect snake_case fields from the API
       const response = await this.axiosClient.post<TokenPair>(
-        "/auth/v1/token",
+        this.config.tokenEndpoint ?? "/auth/v1/token",
         { email, password },
         { params }
       );
@@ -113,13 +113,16 @@ export class AuthClient {
     password: string
   ): Promise<{ error: Error | null }> {
     try {
-      await this.axiosClient.post("/auth/v1/register", {
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        password,
-        org_id: this.config.orgId,
-      });
+      await this.axiosClient.post(
+        this.config.registerEndpoint ?? "/auth/v1/register",
+        {
+          first_name: firstName,
+          last_name: lastName,
+          email,
+          password,
+          org_id: this.config.orgId,
+        }
+      );
       return { error: null };
     } catch (error) {
       let authError: Error;
@@ -161,7 +164,7 @@ export class AuthClient {
       this.store.getState().clearError();
 
       const response = await this.axiosClient.post<TokenPair>(
-        "/auth/v1/refresh",
+        this.config.refreshEndpoint ?? "/auth/v1/refresh",
         { token: session.refresh_token }
       );
 
@@ -275,7 +278,7 @@ export class AuthClient {
         throw new Error("No access token found");
       }
       await this.axiosClient.post(
-        "/users/me/password",
+        this.config.changePasswordEndpoint ?? "/users/me/password",
         {
           current_password: currentPassword,
           new_password: newPassword,
@@ -324,9 +327,12 @@ export class AuthClient {
     // This is best practice for security - prevents token reuse
     if (refreshToken) {
       try {
-        await this.axiosClient.post("/auth/v1/logout", {
-          token: refreshToken,
-        });
+        await this.axiosClient.post(
+          this.config.logoutEndpoint ?? "/auth/v1/logout",
+          {
+            token: refreshToken,
+          }
+        );
       } catch (error) {
         // If the API call fails, we've already cleared local session
         // Log the error but don't fail the sign out operation

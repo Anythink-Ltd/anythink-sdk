@@ -62,6 +62,11 @@ export interface AuthConfig {
   instanceUrl: string;
   orgId: number;
   cookieStorage?: CookieStorageConfig;
+  tokenEndpoint?: string;
+  refreshEndpoint?: string;
+  registerEndpoint?: string;
+  changePasswordEndpoint?: string;
+  logoutEndpoint?: string;
 }
 
 /**
