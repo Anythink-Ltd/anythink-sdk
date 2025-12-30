@@ -5,6 +5,7 @@ import type {
   SignInResponse,
   RefreshResponse,
   TokenPair,
+  User,
 } from "@/types/auth";
 import { createAuthStore } from "@/auth/store";
 
@@ -55,7 +56,7 @@ export class AuthClient {
 
       // Always expect snake_case fields from the API
       const response = await this.axiosClient.post<TokenPair>(
-        this.config.tokenEndpoint ?? "/auth/v1/token",
+        this.config.tokenEndpoint ?? `/org/${this.config.orgId}/auth/v1/token`,
         { email, password },
         { params }
       );
@@ -71,6 +72,9 @@ export class AuthClient {
 
       this.store.getState().setSession(session);
       this.store.getState().setLoading(false);
+
+      // Fetch user info after successful sign in
+      await this.fetchUserInfo();
 
       return { data: { session }, error: null };
     } catch (error) {
@@ -114,7 +118,8 @@ export class AuthClient {
   ): Promise<{ error: Error | null }> {
     try {
       await this.axiosClient.post(
-        this.config.registerEndpoint ?? "/auth/v1/register",
+        this.config.registerEndpoint ??
+          `/org/${this.config.orgId}/auth/v1/register`,
         {
           first_name: firstName,
           last_name: lastName,
@@ -164,7 +169,8 @@ export class AuthClient {
       this.store.getState().clearError();
 
       const response = await this.axiosClient.post<TokenPair>(
-        this.config.refreshEndpoint ?? "/auth/v1/refresh",
+        this.config.refreshEndpoint ??
+          `/org/${this.config.orgId}/auth/v1/refresh`,
         { token: session.refresh_token }
       );
 
@@ -179,6 +185,9 @@ export class AuthClient {
 
       this.store.getState().setSession(newSession);
       this.store.getState().setLoading(false);
+
+      // Fetch user info after successful token refresh
+      await this.fetchUserInfo();
 
       return { data: { session: newSession }, error: null };
     } catch (error) {
@@ -253,6 +262,10 @@ export class AuthClient {
         expires_at: Math.floor(Date.now() / 1000) + expires_in,
       };
       this.store.getState().setSession(session);
+
+      // Fetch user info after setting session
+      await this.fetchUserInfo();
+
       return { error: null };
     } catch (error) {
       return {
@@ -278,7 +291,8 @@ export class AuthClient {
         throw new Error("No access token found");
       }
       await this.axiosClient.post(
-        this.config.changePasswordEndpoint ?? "/users/me/password",
+        this.config.changePasswordEndpoint ??
+          `/org/${this.config.orgId}/users/me/password`,
         {
           current_password: currentPassword,
           new_password: newPassword,
@@ -328,7 +342,8 @@ export class AuthClient {
     if (refreshToken) {
       try {
         await this.axiosClient.post(
-          this.config.logoutEndpoint ?? "/auth/v1/logout",
+          this.config.logoutEndpoint ??
+            `/org/${this.config.orgId}/auth/v1/logout`,
           {
             token: refreshToken,
           }
@@ -394,6 +409,68 @@ export class AuthClient {
     }
 
     return true;
+  }
+
+  /**
+   * Fetch user information from the API
+   * @returns User object or null if failed
+   */
+  async fetchUserInfo(): Promise<{
+    data: { user: User | null };
+    error: Error | null;
+  }> {
+    const token = this.getAccessToken();
+    if (!token) {
+      return {
+        data: { user: null },
+        error: new Error("No access token found"),
+      };
+    }
+
+    try {
+      const response = await this.axiosClient.get<User>(
+        `/org/${this.config.orgId}/users/me`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const user = response.data;
+      this.store.getState().setUser(user);
+
+      return { data: { user }, error: null };
+    } catch (error) {
+      let authError: Error;
+      if (error instanceof AxiosError) {
+        const errorMessage =
+          typeof error.response?.data === "string"
+            ? error.response.data
+            : error.response?.data?.message ||
+              error.message ||
+              "Failed to fetch user information";
+        authError = new Error(errorMessage);
+      } else {
+        authError =
+          error instanceof Error
+            ? error
+            : new Error("Failed to fetch user information");
+      }
+      // Don't set error in store for user fetch failures - it's not critical
+      return {
+        data: { user: null },
+        error: authError,
+      };
+    }
+  }
+
+  /**
+   * Get the current user
+   * @returns User object or null if not available
+   */
+  getUser(): User | null {
+    return this.store.getState().user;
   }
 
   /**

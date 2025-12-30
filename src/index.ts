@@ -7,6 +7,12 @@
 // Auth exports
 export { AuthClient } from "@/auth/client";
 export { createAuthStore } from "@/auth/store";
+export { AuthProvider, useAuth } from "@/auth/provider";
+export type {
+  AuthProviderProps,
+  AuthCallbacks,
+  AuthContextValue,
+} from "@/auth/provider";
 
 // Service exports
 export { AuthenticatedBaseService } from "@/services/AuthenticatedBaseService";

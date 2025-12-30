@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Session } from "@/types/auth";
+import type { Session, User } from "@/types/auth";
 import {
   createCookieStorage,
   type CookieStorageOptions,
@@ -8,11 +8,13 @@ import {
 
 interface AuthState {
   session: Session | null;
+  user: User | null;
   isLoading: boolean;
   error: Error | null;
 
   // Actions
   setSession: (session: Session | null) => void;
+  setUser: (user: User | null) => void;
   signOut: () => void;
   clearError: () => void;
   setLoading: (isLoading: boolean) => void;
@@ -30,6 +32,7 @@ export const createAuthStore = (cookieOptions?: CookieStorageOptions) => {
     persist(
       (set) => ({
         session: null,
+        user: null,
         isLoading: false,
         error: null,
 
@@ -37,8 +40,12 @@ export const createAuthStore = (cookieOptions?: CookieStorageOptions) => {
           set({ session, error: null });
         },
 
+        setUser: (user: User | null) => {
+          set({ user });
+        },
+
         signOut: () => {
-          set({ session: null, error: null });
+          set({ session: null, user: null, error: null });
         },
 
         clearError: () => {
@@ -68,8 +75,11 @@ export const createAuthStore = (cookieOptions?: CookieStorageOptions) => {
             ...cookieOptions, // User-provided options override defaults
           });
         }),
-        // Only persist the session, not loading/error states
-        partialize: (state: AuthState) => ({ session: state.session }),
+        // Only persist the session and user, not loading/error states
+        partialize: (state: AuthState) => ({
+          session: state.session,
+          user: state.user,
+        }),
       }
     )
   );
