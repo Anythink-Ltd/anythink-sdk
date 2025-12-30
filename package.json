@@ -1,6 +1,6 @@
 {
   "name": "@anythink-cloud/sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Reusable Typescript SDK for Anythink platform",
   "homepage": "https://anythink.cloud",
   "bugs": "https://github.com/Anythink-Ltd/anythink-sdk/issues",

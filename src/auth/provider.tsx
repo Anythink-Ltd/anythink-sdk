@@ -126,7 +126,12 @@ export interface AuthProviderProps {
   /**
    * URL to redirect to when user is not authenticated or token refresh fails
    */
-  loginUrl?: string;
+  loginUrl: string;
+  /**
+   * Path prefix for auth pages (e.g., "/auth"). Pages starting with this prefix
+   * will skip session checks and redirects
+   */
+  authPrefix: string;
   /**
    * Child components
    */
@@ -142,6 +147,7 @@ export function AuthProvider({
   autoRefresh = true,
   refreshThreshold = 60,
   loginUrl,
+  authPrefix,
   children,
 }: AuthProviderProps) {
   const store = authClient.getStore();
@@ -163,13 +169,24 @@ export function AuthProvider({
   }, [session]);
 
   /**
-   * Redirect to login URL if configured
+   * Check if current pathname is an auth page
+   */
+  const isAuthPage = useCallback((): boolean => {
+    if (!authPrefix || typeof window === "undefined") {
+      return false;
+    }
+    const pathname = window.location.pathname;
+    return pathname.startsWith(authPrefix);
+  }, [authPrefix]);
+
+  /**
+   * Redirect to login URL if configured and not on auth page
    */
   const redirectToLogin = useCallback(() => {
-    if (loginUrl && typeof window !== "undefined") {
+    if (loginUrl && typeof window !== "undefined" && !isAuthPage()) {
       window.location.href = loginUrl;
     }
-  }, [loginUrl]);
+  }, [loginUrl, isAuthPage]);
 
   /**
    * Refresh token if needed
@@ -225,6 +242,11 @@ export function AuthProvider({
     let isMounted = true;
 
     const initializeAuth = async () => {
+      // Skip session checks if we're on an auth page
+      if (isAuthPage()) {
+        return;
+      }
+
       try {
         const currentSession = authClient.getSession().data.session;
 
@@ -299,7 +321,7 @@ export function AuthProvider({
     return () => {
       isMounted = false;
     };
-  }, [authClient, loginUrl, redirectToLogin]);
+  }, [authClient, loginUrl, redirectToLogin, isAuthPage]);
 
   /**
    * Setup automatic token refresh
