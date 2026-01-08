@@ -1,7 +1,7 @@
 {
   "name": "@anythink-cloud/sdk",
-  "version": "0.3.1",
-  "description": "Reusable Typescript SDK for Anythink platform",
+  "version": "0.4.0",
+  "description": "React SDK for the Anythink platform",
   "homepage": "https://anythink.cloud",
   "bugs": "https://github.com/Anythink-Ltd/anythink-sdk/issues",
   "main": "./dist/index.js",
@@ -24,6 +24,9 @@
     "dev": "tsup --watch",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
@@ -40,13 +43,23 @@
     "access": "public"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/react-hooks": "^8.0.1",
+    "@testing-library/user-event": "^14.5.2",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0 || ^19.0.0",
+    "@types/react-dom": "^18.0.0 || ^19.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^9.0.0",
+    "jsdom": "^24.0.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0"

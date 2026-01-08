@@ -196,13 +196,20 @@ export function AuthProvider({
       return;
     }
 
-    const currentSession = authClient.getSession().data.session;
-    if (!currentSession || !currentSession.expires_at) {
+    // Get raw session from store (includes expired sessions)
+    // We need the raw session to check for refresh token even if access token is expired
+    const rawSession = store.getState().session;
+    if (!rawSession || !rawSession.expires_at) {
+      return;
+    }
+
+    // Check if we have a refresh token available
+    if (!rawSession.refresh_token) {
       return;
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const timeUntilExpiry = currentSession.expires_at - now;
+    const timeUntilExpiry = rawSession.expires_at - now;
 
     // Refresh if token expires within the threshold or is already expired
     if (timeUntilExpiry <= refreshThreshold) {
@@ -228,7 +235,7 @@ export function AuthProvider({
         isRefreshingRef.current = false;
       }
     }
-  }, [authClient, refreshThreshold, callbacks, redirectToLogin]);
+  }, [store, authClient, refreshThreshold, callbacks, redirectToLogin]);
 
   /**
    * Initialize auth state on mount - load user details if session exists
@@ -248,10 +255,12 @@ export function AuthProvider({
       }
 
       try {
-        const currentSession = authClient.getSession().data.session;
+        // Get raw session from store (includes expired sessions)
+        // We need the raw session to check for refresh token even if access token is expired
+        const rawSession = store.getState().session;
 
-        // If no session or session is expired, redirect to login
-        if (!currentSession || !currentSession.expires_at) {
+        // If no session at all, redirect to login
+        if (!rawSession) {
           if (loginUrl && isMounted) {
             redirectToLogin();
           }
@@ -259,19 +268,29 @@ export function AuthProvider({
         }
 
         // Check if session is expired
-        // Note: getSession() already returns null if expired, but we check explicitly
-        // in case the session exists but is expired
         const now = Math.floor(Date.now() / 1000);
-        if (currentSession.expires_at <= now) {
-          // Try to refresh the session
-          const { data, error: refreshError } =
-            await authClient.refreshSession();
-          if (!isMounted) {
-            return;
-          }
-          if (refreshError || !data.session) {
-            // Refresh failed, redirect to login
-            if (loginUrl) {
+        const isExpired = rawSession.expires_at && rawSession.expires_at <= now;
+
+        if (isExpired) {
+          // Session is expired, but check if we have a refresh token to attempt refresh
+          if (rawSession.refresh_token) {
+            // Try to refresh the session
+            const { data, error: refreshError } =
+              await authClient.refreshSession();
+            if (!isMounted) {
+              return;
+            }
+            if (refreshError || !data.session) {
+              // Refresh failed, redirect to login
+              if (loginUrl) {
+                redirectToLogin();
+              }
+              return;
+            }
+            // Refresh succeeded, continue with user info fetch below
+          } else {
+            // No refresh token available, redirect to login
+            if (loginUrl && isMounted) {
               redirectToLogin();
             }
             return;
