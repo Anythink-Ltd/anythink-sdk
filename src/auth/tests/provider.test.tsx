@@ -125,10 +125,15 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         error: null,
       });
 
-      // Mock getSession to return null (expired)
+      // Mock getSession to return the expired session (provider checks expiration)
       (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: null },
+        data: { session: expiredSession },
       }));
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
 
       const TestComponent = () => {
         return <div>Test</div>;
@@ -146,23 +151,23 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         );
       });
 
-      // Wait for async operations - vi.waitFor handles async waiting
-      // No need to manually flush timers as it causes infinite loops with intervals
-
+      // Wait for async operations
       await vi.waitFor(() => {
         expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+        expect(mockAuthClient.fetchUserInfo).toHaveBeenCalled();
       });
 
-      // Clean up to stop the interval
+      // Clean up
       unmount();
 
-      // Should not redirect to login
+      // Should not redirect to login (refresh succeeded)
       expect(window.location.href).toBe("");
     });
 
     it("should redirect to login when session is expired and refresh fails", async () => {
       const now = Math.floor(Date.now() / 1000);
       const expiredSession = createMockSession(now - 100); // Expired 100 seconds ago
+      const onTokenRefreshFailed = vi.fn();
 
       // Setup: expired session in store
       const storeState = (mockStore as any).getState();
@@ -175,10 +180,15 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         error: new Error("Refresh failed"),
       });
 
-      // Mock getSession to return null (expired)
+      // Mock getSession to return the expired session (provider checks expiration)
       (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: null },
+        data: { session: expiredSession },
       }));
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
 
       const TestComponent = () => {
         return <div>Test</div>;
@@ -190,21 +200,24 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
             authClient={mockAuthClient as AuthClient}
             loginUrl="/auth/login"
             authPrefix="/auth"
+            callbacks={{ onTokenRefreshFailed }}
           >
             <TestComponent />
           </AuthProvider>
         );
       });
 
-      // Wait for async operations - vi.waitFor handles async waiting
-      // No need to manually flush timers as it causes infinite loops with intervals
-
+      // Wait for async operations
       await vi.waitFor(() => {
         expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
       });
 
-      // Clean up to stop the interval
+      // Clean up
       unmount();
+
+      // Should call the callback
+      expect(onTokenRefreshFailed).toHaveBeenCalled();
 
       // Should redirect to login after failed refresh
       expect(window.location.href).toBe("/auth/login");
@@ -213,16 +226,28 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
     it("should redirect to login when session is expired and no refresh token exists", async () => {
       const now = Math.floor(Date.now() / 1000);
       const expiredSession = createMockSession(now - 100, ""); // Expired, no refresh token
+      const onTokenRefreshFailed = vi.fn();
 
       // Setup: expired session in store with no refresh token
       const storeState = (mockStore as any).getState();
       storeState.session = expiredSession;
       storeState.user = null;
 
-      // Mock getSession to return null (expired)
+      // Mock getSession to return the expired session (provider checks expiration)
       (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: null },
+        data: { session: expiredSession },
       }));
+
+      // Mock failed refresh (client will fail because no refresh token)
+      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
+        data: { session: null },
+        error: new Error("No refresh token found"),
+      });
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
 
       const TestComponent = () => {
         return <div>Test</div>;
@@ -234,21 +259,21 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
             authClient={mockAuthClient as AuthClient}
             loginUrl="/auth/login"
             authPrefix="/auth"
+            callbacks={{ onTokenRefreshFailed }}
           >
             <TestComponent />
           </AuthProvider>
         );
       });
 
-      // Wait for async operations - use real timers temporarily to flush promises
-      await act(async () => {
-        vi.useRealTimers();
-        await new Promise((resolve) => setImmediate(resolve));
-        vi.useFakeTimers();
+      // Wait for async operations
+      await vi.waitFor(() => {
+        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
       });
 
-      // Should not attempt refresh (no refresh token)
-      expect(mockAuthClient.refreshSession).not.toHaveBeenCalled();
+      // Should call the callback
+      expect(onTokenRefreshFailed).toHaveBeenCalled();
 
       // Should redirect to login
       expect(window.location.href).toBe("/auth/login");
@@ -273,6 +298,11 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         configurable: true,
       });
 
+      // Mock getSession (shouldn't be called on auth page, but just in case)
+      (mockAuthClient.getSession as any) = vi.fn(() => ({
+        data: { session: expiredSession },
+      }));
+
       const TestComponent = () => {
         return <div>Test</div>;
       };
@@ -289,7 +319,7 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         );
       });
 
-      // Wait for async operations - use real timers temporarily to flush promises
+      // Wait a bit to ensure no async operations run
       await act(async () => {
         vi.useRealTimers();
         await new Promise((resolve) => setImmediate(resolve));
@@ -298,126 +328,9 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
 
       // Should not redirect (we're on auth page)
       expect(window.location.href).toBe("");
-    });
-  });
-
-  describe("Auto-refresh behavior", () => {
-    it("should automatically refresh token when it expires within threshold", async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const sessionExpiringSoon = createMockSession(now + 30); // Expires in 30 seconds
-      const newSession = createMockSession(now + 3600); // Valid for 1 hour
-      const mockUser = createMockUser();
-
-      // Setup: session expiring soon in store
-      const storeState = (mockStore as any).getState();
-      storeState.session = sessionExpiringSoon;
-      storeState.user = mockUser;
-
-      // Mock successful refresh
-      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
-        data: { session: newSession },
-        error: null,
-      });
-
-      // Mock getSession to return session (not expired yet)
-      (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: sessionExpiringSoon },
-      }));
-
-      const TestComponent = () => {
-        return <div>Test</div>;
-      };
-
-      const { unmount } = await act(async () => {
-        return render(
-          <AuthProvider
-            authClient={mockAuthClient as AuthClient}
-            loginUrl="/auth/login"
-            authPrefix="/auth"
-            autoRefresh={true}
-            refreshThreshold={60}
-          >
-            <TestComponent />
-          </AuthProvider>
-        );
-      });
-
-      // Advance time to trigger refresh check
-      await act(async () => {
-        vi.advanceTimersByTime(35000); // Advance 35 seconds
-        // Run only currently pending timers, not ones scheduled by intervals
-        vi.runOnlyPendingTimers();
-      });
-
-      // Wait for refresh to be called
-      await vi.waitFor(() => {
-        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
-      });
-
-      // Clean up to stop the interval
-      unmount();
-    });
-
-    it("should use raw session from store for refresh check even when getSession returns null", async () => {
-      const now = Math.floor(Date.now() / 1000);
-      const expiredSession = createMockSession(now - 10); // Just expired
-      const newSession = createMockSession(now + 3600); // Valid for 1 hour
-
-      // Setup: expired session in store (but still has refresh token)
-      const storeState = (mockStore as any).getState();
-      storeState.session = expiredSession;
-      storeState.user = null;
-
-      // Mock getSession to return null (expired)
-      (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: null },
-      }));
-
-      // Mock successful refresh
-      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
-        data: { session: newSession },
-        error: null,
-      });
-
-      // Mock successful user fetch
-      (mockAuthClient.fetchUserInfo as any) = vi.fn().mockResolvedValue({
-        data: { user: createMockUser() },
-        error: null,
-      });
-
-      const TestComponent = () => {
-        return <div>Test</div>;
-      };
-
-      const { unmount } = await act(async () => {
-        return render(
-          <AuthProvider
-            authClient={mockAuthClient as AuthClient}
-            loginUrl="/auth/login"
-            authPrefix="/auth"
-            autoRefresh={true}
-            refreshThreshold={60}
-          >
-            <TestComponent />
-          </AuthProvider>
-        );
-      });
-
-      // Advance time to trigger refresh check
-      await act(async () => {
-        vi.advanceTimersByTime(30000); // Advance 30 seconds
-        // Run only currently pending timers, not ones scheduled by intervals
-        vi.runOnlyPendingTimers();
-      });
-
-      // Should still attempt refresh even though getSession returns null
-      // because we're using raw session from store
-      await vi.waitFor(() => {
-        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
-      });
-
-      // Clean up to stop the interval
-      unmount();
+      // Should not attempt any auth operations
+      expect(mockAuthClient.refreshSession).not.toHaveBeenCalled();
+      expect(mockAuthClient.fetchUserInfo).not.toHaveBeenCalled();
     });
   });
 
@@ -445,10 +358,15 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         error: null,
       });
 
-      // Mock getSession to return null (expired)
+      // Mock getSession to return the expired session (provider checks expiration)
       (mockAuthClient.getSession as any) = vi.fn(() => ({
-        data: { session: null },
+        data: { session: expiredSession },
       }));
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
 
       const TestComponent = () => {
         return <div>Test</div>;
@@ -466,13 +384,239 @@ describe("AuthProvider - Session Expiration and Refresh", () => {
         );
       });
 
-      // Wait for async operations - vi.waitFor handles async waiting
-      // No need to manually flush timers as it causes infinite loops with intervals
-
+      // Wait for async operations
       await vi.waitFor(() => {
         expect(mockAuthClient.refreshSession).toHaveBeenCalled();
         expect(mockAuthClient.fetchUserInfo).toHaveBeenCalled();
       });
+    });
+
+    it("should handle fetchUserInfo error and attempt refresh", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const validSession = createMockSession(now + 3600);
+      const newSession = createMockSession(now + 7200);
+      const mockUser = createMockUser();
+
+      // Setup: valid session in store
+      const storeState = (mockStore as any).getState();
+      storeState.session = validSession;
+      storeState.user = null;
+
+      // Mock getSession to return the valid session
+      (mockAuthClient.getSession as any) = vi.fn(() => ({
+        data: { session: validSession },
+      }));
+
+      // Mock fetchUserInfo to fail first time
+      (mockAuthClient.fetchUserInfo as any) = vi
+        .fn()
+        .mockResolvedValueOnce({
+          data: { user: null },
+          error: new Error("Unauthorized"),
+        })
+        .mockResolvedValueOnce({
+          data: { user: mockUser },
+          error: null,
+        });
+
+      // Mock successful refresh
+      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
+        data: { session: newSession },
+        error: null,
+      });
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
+
+      const TestComponent = () => {
+        return <div>Test</div>;
+      };
+
+      await act(async () => {
+        render(
+          <AuthProvider
+            authClient={mockAuthClient as AuthClient}
+            loginUrl="/auth/login"
+            authPrefix="/auth"
+          >
+            <TestComponent />
+          </AuthProvider>
+        );
+      });
+
+      // Wait for async operations
+      await vi.waitFor(() => {
+        expect(mockAuthClient.fetchUserInfo).toHaveBeenCalledTimes(2);
+        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+      });
+
+      // Should not redirect (refresh and retry succeeded)
+      expect(window.location.href).toBe("");
+    });
+
+    it("should redirect when fetchUserInfo fails and refresh also fails", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const validSession = createMockSession(now + 3600);
+      const onTokenRefreshFailed = vi.fn();
+
+      // Setup: valid session in store
+      const storeState = (mockStore as any).getState();
+      storeState.session = validSession;
+      storeState.user = null;
+
+      // Mock getSession to return the valid session
+      (mockAuthClient.getSession as any) = vi.fn(() => ({
+        data: { session: validSession },
+      }));
+
+      // Mock fetchUserInfo to fail
+      (mockAuthClient.fetchUserInfo as any) = vi.fn().mockResolvedValue({
+        data: { user: null },
+        error: new Error("Unauthorized"),
+      });
+
+      // Mock failed refresh
+      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
+        data: { session: null },
+        error: new Error("Refresh failed"),
+      });
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
+
+      const TestComponent = () => {
+        return <div>Test</div>;
+      };
+
+      await act(async () => {
+        render(
+          <AuthProvider
+            authClient={mockAuthClient as AuthClient}
+            loginUrl="/auth/login"
+            authPrefix="/auth"
+            callbacks={{ onTokenRefreshFailed }}
+          >
+            <TestComponent />
+          </AuthProvider>
+        );
+      });
+
+      // Wait for async operations
+      await vi.waitFor(() => {
+        expect(mockAuthClient.fetchUserInfo).toHaveBeenCalled();
+        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
+      });
+
+      // Should call the callback
+      expect(onTokenRefreshFailed).toHaveBeenCalled();
+
+      // Should redirect to login
+      expect(window.location.href).toBe("/auth/login");
+    });
+
+    it("should redirect when fetchUserInfo fails after successful refresh", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const expiredSession = createMockSession(now - 100);
+      const newSession = createMockSession(now + 3600);
+
+      // Setup: expired session in store
+      const storeState = (mockStore as any).getState();
+      storeState.session = expiredSession;
+      storeState.user = null;
+
+      // Mock getSession to return the expired session
+      (mockAuthClient.getSession as any) = vi.fn(() => ({
+        data: { session: expiredSession },
+      }));
+
+      // Mock successful refresh
+      (mockAuthClient.refreshSession as any) = vi.fn().mockResolvedValue({
+        data: { session: newSession },
+        error: null,
+      });
+
+      // Mock fetchUserInfo to fail after refresh
+      (mockAuthClient.fetchUserInfo as any) = vi.fn().mockResolvedValue({
+        data: { user: null },
+        error: new Error("Failed to fetch user"),
+      });
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
+
+      const TestComponent = () => {
+        return <div>Test</div>;
+      };
+
+      await act(async () => {
+        render(
+          <AuthProvider
+            authClient={mockAuthClient as AuthClient}
+            loginUrl="/auth/login"
+            authPrefix="/auth"
+          >
+            <TestComponent />
+          </AuthProvider>
+        );
+      });
+
+      // Wait for async operations
+      await vi.waitFor(() => {
+        expect(mockAuthClient.refreshSession).toHaveBeenCalled();
+        expect(mockAuthClient.fetchUserInfo).toHaveBeenCalled();
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
+      });
+
+      // Should redirect to login
+      expect(window.location.href).toBe("/auth/login");
+    });
+
+    it("should redirect when no session exists", async () => {
+      // Setup: no session in store
+      const storeState = (mockStore as any).getState();
+      storeState.session = null;
+      storeState.user = null;
+
+      // Mock getSession to return no session
+      (mockAuthClient.getSession as any) = vi.fn(() => ({
+        data: { session: null },
+      }));
+
+      // Mock signOut
+      (mockAuthClient.signOut as any) = vi.fn().mockResolvedValue({
+        error: null,
+      });
+
+      const TestComponent = () => {
+        return <div>Test</div>;
+      };
+
+      await act(async () => {
+        render(
+          <AuthProvider
+            authClient={mockAuthClient as AuthClient}
+            loginUrl="/auth/login"
+            authPrefix="/auth"
+          >
+            <TestComponent />
+          </AuthProvider>
+        );
+      });
+
+      // Wait for async operations
+      await vi.waitFor(() => {
+        expect(mockAuthClient.signOut).toHaveBeenCalled();
+      });
+
+      // Should redirect to login
+      expect(window.location.href).toBe("/auth/login");
     });
   });
 });

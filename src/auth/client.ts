@@ -223,19 +223,6 @@ export class AuthClient {
    */
   getSession(): { data: { session: Session | null } } {
     const session = this.store.getState().session;
-
-    // Check if session is expired
-    // expires_at is in seconds (Unix timestamp), Date.now() is in milliseconds
-    if (
-      session &&
-      session.expires_at &&
-      Date.now() >= session.expires_at * 1000
-    ) {
-      // Session expired, return null
-      // The caller should handle refresh if needed
-      return { data: { session: null } };
-    }
-
     return { data: { session } };
   }
 
@@ -378,13 +365,6 @@ export class AuthClient {
   getAccessToken(): string | null {
     const session = this.store.getState().session;
     if (!session) return null;
-
-    // Check if expired
-    // expires_at is in seconds (Unix timestamp), Date.now() is in milliseconds
-    if (session.expires_at && Date.now() >= session.expires_at * 1000) {
-      return null;
-    }
-
     return session.access_token;
   }
 

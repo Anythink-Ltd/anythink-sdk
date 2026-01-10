@@ -1,9 +1,4 @@
-import axios, {
-  AxiosError,
-  AxiosInstance,
-  AxiosRequestConfig,
-  AxiosResponse,
-} from "axios";
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 import { AuthClient } from "@/auth/client";
 
 /**
@@ -39,52 +34,6 @@ export class AuthenticatedBaseService {
         return config;
       },
       (error) => {
-        return Promise.reject(error);
-      }
-    );
-
-    // Response interceptor: Handle token refresh on 401
-    this.client.interceptors.response.use(
-      (response) => response,
-      async (error: AxiosError) => {
-        const originalRequest = error.config as AxiosRequestConfig & {
-          _retry?: boolean;
-        };
-
-        // If the error is 401 (Unauthorized) and we haven't already tried to refresh
-        if (
-          error.response?.status === 401 &&
-          originalRequest &&
-          !originalRequest._retry
-        ) {
-          originalRequest._retry = true;
-
-          try {
-            // Try to refresh the token
-            const { data, error: refreshError } =
-              await this.authClient.refreshSession();
-
-            if (data.session && !refreshError) {
-              // Retry the original request with the new token
-              const token = this.authClient.getAccessToken();
-              if (token) {
-                if (!originalRequest.headers) {
-                  originalRequest.headers = {};
-                }
-                originalRequest.headers.Authorization = `Bearer ${token}`;
-              }
-              return this.client(originalRequest);
-            } else {
-              // Refresh failed, sign out
-              await this.authClient.signOut();
-            }
-          } catch (refreshError) {
-            // Refresh failed, sign out
-            await this.authClient.signOut();
-            return Promise.reject(refreshError);
-          }
-        }
-
         return Promise.reject(error);
       }
     );

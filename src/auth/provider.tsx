@@ -114,16 +114,6 @@ export interface AuthProviderProps {
    */
   callbacks?: AuthCallbacks;
   /**
-   * Whether to automatically refresh tokens before they expire
-   * @default true
-   */
-  autoRefresh?: boolean;
-  /**
-   * How many seconds before expiration to refresh the token
-   * @default 60
-   */
-  refreshThreshold?: number;
-  /**
    * URL to redirect to when user is not authenticated or token refresh fails
    */
   loginUrl: string;
@@ -144,8 +134,6 @@ export interface AuthProviderProps {
 export function AuthProvider({
   authClient,
   callbacks,
-  autoRefresh = true,
-  refreshThreshold = 60,
   loginUrl,
   authPrefix,
   children,
@@ -155,8 +143,6 @@ export function AuthProvider({
   const user = store((state) => state.user);
   const isLoading = store((state) => state.isLoading);
   const error = store((state) => state.error);
-  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isRefreshingRef = useRef(false);
   const hasInitializedRef = useRef(false);
 
   // Check if authenticated (reactive to session changes)
@@ -189,196 +175,6 @@ export function AuthProvider({
   }, [loginUrl, isAuthPage]);
 
   /**
-   * Refresh token if needed
-   */
-  const refreshTokenIfNeeded = useCallback(async () => {
-    if (isRefreshingRef.current) {
-      return;
-    }
-
-    // Get raw session from store (includes expired sessions)
-    // We need the raw session to check for refresh token even if access token is expired
-    const rawSession = store.getState().session;
-    if (!rawSession || !rawSession.expires_at) {
-      return;
-    }
-
-    // Check if we have a refresh token available
-    if (!rawSession.refresh_token) {
-      return;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const timeUntilExpiry = rawSession.expires_at - now;
-
-    // Refresh if token expires within the threshold or is already expired
-    if (timeUntilExpiry <= refreshThreshold) {
-      isRefreshingRef.current = true;
-      try {
-        const { data, error: refreshError } = await authClient.refreshSession();
-        if (refreshError || !data.session) {
-          // Refresh failed, call callback if provided
-          if (callbacks?.onTokenRefreshFailed) {
-            await callbacks.onTokenRefreshFailed();
-          }
-          // Redirect to login if configured
-          redirectToLogin();
-        }
-      } catch (err) {
-        // Refresh failed, call callback if provided
-        if (callbacks?.onTokenRefreshFailed) {
-          await callbacks.onTokenRefreshFailed();
-        }
-        // Redirect to login if configured
-        redirectToLogin();
-      } finally {
-        isRefreshingRef.current = false;
-      }
-    }
-  }, [store, authClient, refreshThreshold, callbacks, redirectToLogin]);
-
-  /**
-   * Initialize auth state on mount - load user details if session exists
-   */
-  useEffect(() => {
-    if (hasInitializedRef.current) {
-      return;
-    }
-    hasInitializedRef.current = true;
-
-    let isMounted = true;
-
-    const initializeAuth = async () => {
-      // Skip session checks if we're on an auth page
-      if (isAuthPage()) {
-        return;
-      }
-
-      try {
-        // Get raw session from store (includes expired sessions)
-        // We need the raw session to check for refresh token even if access token is expired
-        const rawSession = store.getState().session;
-
-        // If no session at all, redirect to login
-        if (!rawSession) {
-          if (loginUrl && isMounted) {
-            redirectToLogin();
-          }
-          return;
-        }
-
-        // Check if session is expired
-        const now = Math.floor(Date.now() / 1000);
-        const isExpired = rawSession.expires_at && rawSession.expires_at <= now;
-
-        if (isExpired) {
-          // Session is expired, but check if we have a refresh token to attempt refresh
-          if (rawSession.refresh_token) {
-            // Try to refresh the session
-            const { data, error: refreshError } =
-              await authClient.refreshSession();
-            if (!isMounted) {
-              return;
-            }
-            if (refreshError || !data.session) {
-              // Refresh failed, redirect to login
-              if (loginUrl) {
-                redirectToLogin();
-              }
-              return;
-            }
-            // Refresh succeeded, continue with user info fetch below
-          } else {
-            // No refresh token available, redirect to login
-            if (loginUrl && isMounted) {
-              redirectToLogin();
-            }
-            return;
-          }
-        }
-
-        // Session is valid, fetch user details
-        const { error: userError } = await authClient.fetchUserInfo();
-        if (!isMounted) {
-          return;
-        }
-        if (userError) {
-          // If fetching user info fails, it might be an invalid token
-          // Try to refresh once more
-          const { data, error: refreshError } =
-            await authClient.refreshSession();
-          if (!isMounted) {
-            return;
-          }
-          if (refreshError || !data.session) {
-            // Refresh failed, redirect to login
-            if (loginUrl) {
-              redirectToLogin();
-            }
-            return;
-          }
-          // Retry fetching user info after refresh
-          const { error: retryError } = await authClient.fetchUserInfo();
-          if (!isMounted) {
-            return;
-          }
-          if (retryError && loginUrl) {
-            // If retry also fails, redirect to login
-            redirectToLogin();
-          }
-        }
-      } catch (error) {
-        // Handle any unexpected errors
-        if (isMounted && loginUrl) {
-          redirectToLogin();
-        }
-      }
-    };
-
-    initializeAuth();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [authClient, loginUrl, redirectToLogin, isAuthPage]);
-
-  /**
-   * Setup automatic token refresh
-   */
-  useEffect(() => {
-    if (!autoRefresh || !session || !session.expires_at) {
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-      return;
-    }
-
-    // Clear any existing timer
-    if (refreshTimerRef.current) {
-      clearInterval(refreshTimerRef.current);
-    }
-
-    // Set up timer to check and refresh token
-    const checkAndRefresh = () => {
-      refreshTokenIfNeeded();
-    };
-
-    // Initial check
-    checkAndRefresh();
-
-    // Set up interval to check periodically (every 30 seconds)
-    refreshTimerRef.current = setInterval(checkAndRefresh, 30000);
-
-    return () => {
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-  }, [session, autoRefresh, refreshThreshold, refreshTokenIfNeeded]);
-
-  /**
    * Sign in wrapper with callback support
    */
   const signIn = useCallback(
@@ -406,6 +202,136 @@ export function AuthProvider({
     }
     return result;
   }, [authClient, callbacks]);
+
+  /**
+   * Initialize auth state on mount - check session and load user details
+   */
+  useEffect(() => {
+    // Prevent multiple initialization attempts
+    if (hasInitializedRef.current) {
+      return;
+    }
+    hasInitializedRef.current = true;
+
+    // Skip initialization for auth pages
+    if (isAuthPage()) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const initializeAuth = async () => {
+      try {
+        // Get initial session
+        const {
+          data: { session: initialSession },
+        } = authClient.getSession();
+
+        // Check if we have a valid access token
+        const hasValidToken =
+          initialSession?.access_token &&
+          (!initialSession.expires_at ||
+            Date.now() < initialSession.expires_at * 1000);
+
+        if (hasValidToken) {
+          // Token is valid, fetch user info
+          const { error: userError } = await authClient.fetchUserInfo();
+          if (!isMounted) {
+            return;
+          }
+
+          if (userError) {
+            // If fetching user info fails, token might be invalid
+            // Try to refresh once
+            const { data, error: refreshError } =
+              await authClient.refreshSession();
+            if (!isMounted) {
+              return;
+            }
+
+            if (data.session?.access_token && !refreshError) {
+              // Refresh succeeded, retry fetching user info
+              const { error: retryError } = await authClient.fetchUserInfo();
+              if (!isMounted) {
+                return;
+              }
+
+              if (retryError && loginUrl) {
+                // Retry failed, sign out and redirect to login
+                await signOut();
+                redirectToLogin();
+              }
+            } else {
+              // Refresh failed, call callback if provided
+              if (callbacks?.onTokenRefreshFailed) {
+                await callbacks.onTokenRefreshFailed();
+              }
+              // Sign out and redirect to login
+              await signOut();
+              redirectToLogin();
+            }
+          }
+          return;
+        }
+
+        // Token is expired or missing - check if we can refresh
+        if (
+          initialSession?.access_token &&
+          initialSession.expires_at &&
+          Date.now() >= initialSession.expires_at * 1000
+        ) {
+          // Session exists but expired; try to refresh
+          const { data, error: refreshError } =
+            await authClient.refreshSession();
+          if (!isMounted) {
+            return;
+          }
+
+          if (data.session?.access_token && !refreshError) {
+            // Refresh succeeded, fetch user info
+            const { error: userError } = await authClient.fetchUserInfo();
+            if (!isMounted) {
+              return;
+            }
+
+            if (userError && loginUrl) {
+              // User fetch failed after refresh, sign out and redirect
+              await signOut();
+              redirectToLogin();
+            }
+          } else {
+            // Refresh failed, call callback if provided
+            if (callbacks?.onTokenRefreshFailed) {
+              await callbacks.onTokenRefreshFailed();
+            }
+            // Sign out and redirect to login
+            await signOut();
+            redirectToLogin();
+          }
+          return;
+        }
+
+        // No access token at all - not authenticated
+        if (loginUrl) {
+          await signOut();
+          redirectToLogin();
+        }
+      } catch (error) {
+        // Handle any unexpected errors
+        console.error("[AuthProvider] Initialization error:", error);
+        if (isMounted && loginUrl) {
+          await signOut();
+          redirectToLogin();
+        }
+      }
+    };
+
+    initializeAuth();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authClient, signOut, redirectToLogin, isAuthPage, loginUrl, callbacks]);
 
   const contextValue: AuthContextValue = {
     session,
