@@ -2,6 +2,12 @@
 
 React SDK for the Anythink platform
 
+## Features
+
+- **Multi-Tab Context Isolation**: Support for `sessionStorage` and `localStorage` to isolate tab sessions and bypass browser third-party cookie restrictions.
+- **De-duplicated Silent Token Refresh**: Under the hood, concurrent token refresh requests are serialized and cached to prevent duplicate POST requests.
+- **Axios Response Interceptor**: `AuthenticatedBaseService` registers an automatic interceptor that handles `401 Unauthorized` responses by silently refreshing the tokens and replaying original failed requests.
+
 ## Installation
 
 ```bash
@@ -26,6 +32,7 @@ export const getAuthClient = (): AuthClient => {
     authClientInstance = new AuthClient({
       instanceUrl: "<your_anythink_instance_url>",
       orgId: 12345678, // <your_anythink_org_id>
+      storageType: "sessionStorage", // Optional: "cookie" (default), "sessionStorage", or "localStorage"
       cookieStorage: {
         name: "anythink_auth_session", // use a unique identifier here
       },

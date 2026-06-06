@@ -27,7 +27,30 @@ interface AuthState {
  * @param storageKey - Key for cookie storage (cookie name)
  * @param cookieOptions - Optional cookie configuration options to override defaults
  */
-export const createAuthStore = (cookieOptions?: CookieStorageOptions) => {
+export interface AuthStoreOptions extends CookieStorageOptions {
+  storageType?: "cookie" | "sessionStorage" | "localStorage";
+}
+
+const safeStorage = (type: "sessionStorage" | "localStorage") => ({
+  getItem: (name: string): string | null => {
+    if (typeof window === "undefined") return null;
+    return window[type].getItem(name);
+  },
+  setItem: (name: string, value: string): void => {
+    if (typeof window === "undefined") return;
+    window[type].setItem(name, value);
+  },
+  removeItem: (name: string): void => {
+    if (typeof window === "undefined") return;
+    window[type].removeItem(name);
+  },
+});
+
+/**
+ * Creates the auth store with cookie or web storage persistence
+ * @param options - Optional store options to override defaults
+ */
+export const createAuthStore = (options?: AuthStoreOptions) => {
   return create<AuthState>()(
     persist(
       (set) => ({
@@ -61,18 +84,24 @@ export const createAuthStore = (cookieOptions?: CookieStorageOptions) => {
         },
       }),
       {
-        name: cookieOptions?.name ?? "anythink_auth_session",
+        name: options?.name ?? "anythink_auth_session",
         storage: createJSONStorage(() => {
-          // Always use cookie storage with defaults
-          // Defaults: path='/', secure=true (if HTTPS), sameSite='lax'
+          if (options?.storageType === "sessionStorage") {
+            return safeStorage("sessionStorage");
+          }
+          if (options?.storageType === "localStorage") {
+            return safeStorage("localStorage");
+          }
+
+          // Default fallback to cookie storage
           return createCookieStorage({
-            name: cookieOptions?.name ?? "anythink_auth_session",
+            name: options?.name ?? "anythink_auth_session",
             path: "/",
             secure:
               typeof window !== "undefined" &&
               window.location.protocol === "https:",
             sameSite: "lax",
-            ...cookieOptions, // User-provided options override defaults
+            ...options, // User-provided options override defaults
           });
         }),
         // Only persist the session and user, not loading/error states

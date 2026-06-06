@@ -67,6 +67,7 @@ export interface AuthConfig {
   registerEndpoint?: string;
   changePasswordEndpoint?: string;
   logoutEndpoint?: string;
+  storageType?: "cookie" | "sessionStorage" | "localStorage";
 }
 
 /**

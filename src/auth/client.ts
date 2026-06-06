@@ -16,6 +16,7 @@ export class AuthClient {
   private store: ReturnType<typeof createAuthStore>;
   private config: AuthConfig;
   private axiosClient: AxiosInstance;
+  private refreshPromise: Promise<RefreshResponse> | null = null;
 
   constructor(config: AuthConfig) {
     this.config = config;
@@ -25,6 +26,7 @@ export class AuthClient {
       path: this.config.cookieStorage?.path,
       secure: this.config.cookieStorage?.secure,
       sameSite: this.config.cookieStorage?.sameSite,
+      storageType: this.config.storageType,
     });
 
     // Create axios instance with base URL
@@ -154,66 +156,78 @@ export class AuthClient {
    * @returns Session object with new tokens
    */
   async refreshSession(): Promise<RefreshResponse> {
-    const { session } = this.store.getState();
-    if (!session?.refresh_token) {
-      const error = new Error("No refresh token found");
-      this.store.getState().setError(error);
-      return {
-        data: { session: null },
-        error,
-      };
+    if (this.refreshPromise) {
+      return this.refreshPromise;
     }
 
-    try {
-      this.store.getState().setLoading(true);
-      this.store.getState().clearError();
-
-      const response = await this.axiosClient.post<TokenPair>(
-        this.config.refreshEndpoint ??
-          `/org/${this.config.orgId}/auth/v1/refresh`,
-        { token: session.refresh_token }
-      );
-
-      const tokenPair = response.data;
-
-      const newSession: Session = {
-        access_token: tokenPair.access_token,
-        refresh_token: tokenPair.refresh_token,
-        expires_in: tokenPair.expires_in,
-        expires_at: Math.floor(Date.now() / 1000) + tokenPair.expires_in,
-      };
-
-      this.store.getState().setSession(newSession);
-      this.store.getState().setLoading(false);
-
-      // Fetch user info after successful token refresh
-      await this.fetchUserInfo();
-
-      return { data: { session: newSession }, error: null };
-    } catch (error) {
-      // Clear invalid tokens
-      this.store.getState().setSession(null);
-      this.store.getState().setLoading(false);
-
-      let authError: Error;
-      if (error instanceof AxiosError) {
-        const errorMessage =
-          typeof error.response?.data === "string"
-            ? error.response.data
-            : error.response?.data?.message ||
-              error.message ||
-              "Invalid refresh token";
-        authError = new Error(errorMessage);
-      } else {
-        authError =
-          error instanceof Error ? error : new Error("Token refresh failed");
+    this.refreshPromise = (async () => {
+      const { session } = this.store.getState();
+      if (!session?.refresh_token) {
+        const error = new Error("No refresh token found");
+        this.store.getState().setError(error);
+        return {
+          data: { session: null },
+          error,
+        };
       }
-      this.store.getState().setError(authError);
 
-      return {
-        data: { session: null },
-        error: authError,
-      };
+      try {
+        this.store.getState().setLoading(true);
+        this.store.getState().clearError();
+
+        const response = await this.axiosClient.post<TokenPair>(
+          this.config.refreshEndpoint ??
+            `/org/${this.config.orgId}/auth/v1/refresh`,
+          { token: session.refresh_token }
+        );
+
+        const tokenPair = response.data;
+
+        const newSession: Session = {
+          access_token: tokenPair.access_token,
+          refresh_token: tokenPair.refresh_token,
+          expires_in: tokenPair.expires_in,
+          expires_at: Math.floor(Date.now() / 1000) + tokenPair.expires_in,
+        };
+
+        this.store.getState().setSession(newSession);
+        this.store.getState().setLoading(false);
+
+        // Fetch user info after successful token refresh
+        await this.fetchUserInfo();
+
+        return { data: { session: newSession }, error: null };
+      } catch (error) {
+        // Clear invalid tokens
+        this.store.getState().setSession(null);
+        this.store.getState().setLoading(false);
+
+        let authError: Error;
+        if (error instanceof AxiosError) {
+          const errorMessage =
+            typeof error.response?.data === "string"
+              ? error.response.data
+              : error.response?.data?.message ||
+                error.message ||
+                "Invalid refresh token";
+          authError = new Error(errorMessage);
+        } else {
+          authError =
+            error instanceof Error ? error : new Error("Token refresh failed");
+        }
+        this.store.getState().setError(authError);
+
+        return {
+          data: { session: null },
+          error: authError,
+        };
+      }
+    })();
+
+    try {
+      return await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
     }
   }
 

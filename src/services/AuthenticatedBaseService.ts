@@ -37,6 +37,32 @@ export class AuthenticatedBaseService {
         return Promise.reject(error);
       }
     );
+
+    // Response interceptor: Handle 401 and refresh token
+    this.client.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error.config;
+        if (
+          error.response?.status === 401 &&
+          originalRequest &&
+          !(originalRequest as any)._retry
+        ) {
+          (originalRequest as any)._retry = true;
+          try {
+            const refreshRes = await this.authClient.refreshSession();
+            if (refreshRes.data.session?.access_token && !refreshRes.error) {
+              const newAccessToken = refreshRes.data.session.access_token;
+              originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+              return this.client(originalRequest);
+            }
+          } catch (refreshError) {
+            return Promise.reject(refreshError);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
   }
 
   /**
